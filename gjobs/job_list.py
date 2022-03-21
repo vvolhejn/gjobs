@@ -8,7 +8,7 @@ from .util import PeriodicTimer, LOG
 
 def job_fixtures():
     with open(
-        os.path.join(os.path.dirname(__file__), "../bjobs_example_output.json")
+        os.path.join(os.path.dirname(__file__), "..data/bjobs_example_output.json")
     ) as f:
         res = parsing_bjobs.parse_bjobs_output(f.read())
         res[0]["jobid"] = str(int(res[0]["jobid"]) + random.randint(0, 100))
