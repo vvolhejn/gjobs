@@ -2,6 +2,7 @@ import glob
 import os
 import signal
 import subprocess
+from typing import Tuple, Optional
 
 from .util import LOG
 from .parsing_bjobs import parse_run_time
@@ -9,6 +10,8 @@ from .parsing_bjobs import parse_run_time
 # TODO: load and display job output while running
 #   open the files and keep loading the data while available
 #   or ideally run `less` in a subwindow?
+
+N_PREVIEW_LINES = 15
 
 
 class OutputViewer:
@@ -49,7 +52,7 @@ class OutputViewer:
 
     def get_output_file(self, job):
         if job["stat"] == "RUN":
-            run_time =  parse_run_time(job["run_time"])
+            run_time = parse_run_time(job["run_time"])
 
             if run_time and run_time >= 10:
                 return self.get_running_output_file(job["jobid"])
@@ -65,25 +68,22 @@ class OutputViewer:
             LOG.append(f'Unknown job status {job["stat"]}')
             return None
 
-    def generate_view(self, job):
+    def get_output_preview(self, job) -> Tuple[Optional[str], str]:
+        if job is None:
+            # Happens when there are no jobs at all.
+            return None, "(no jobs)"
+
         output_file = self.get_output_file(job)
         if output_file is None:
-            return "(no file to view)"
+            return None, f"(no output file available for job {job['jobid']})"
 
         try:
-            with open(output_file) as f:
-                head = []
-                for i in range(50):
-                    try:
-                        head.append(next(f))
-                    except StopIteration:
-                        break
+            with open(output_file, "rb") as f:
+                output_preview = tail(f, lines=N_PREVIEW_LINES)
 
-            head_joined = "".join(head)
-
-            return f"{output_file}:\n{head_joined}"
+            return output_file, output_preview
         except FileNotFoundError:
-            return f"Couldn't find file {output_file}"
+            return output_file, f"Couldn't find {output_file}"
 
     def open_output_fullscreen(self, job):
         output_file = self.get_output_file(job)
@@ -101,3 +101,31 @@ class OutputViewer:
 
             subprocess.run(command + [output_file])
             signal.signal(signal.SIGINT, old_action)
+
+
+def tail(f, lines=20):
+    # https://stackoverflow.com/questions/136168/get-last-n-lines-of-a-file-similar-to-tail
+    total_lines_wanted = lines
+
+    BLOCK_SIZE = 1024
+    f.seek(0, 2)  # seek to the end
+    block_end_byte = f.tell()
+    lines_to_go = total_lines_wanted
+    block_number = -1
+    blocks = []
+    while lines_to_go > 0 and block_end_byte > 0:
+        if block_end_byte - BLOCK_SIZE > 0:
+            f.seek(block_number * BLOCK_SIZE, 2)
+            blocks.append(f.read(BLOCK_SIZE))
+        else:
+            # Can read the entirety of the file
+            f.seek(0, 0)
+            blocks.append(f.read(block_end_byte))
+        lines_found = blocks[-1].count(b"\n")
+        lines_to_go -= lines_found
+        block_end_byte -= BLOCK_SIZE
+        block_number -= 1
+    all_read_text = b"".join(reversed(blocks))
+
+    res_bytes = b"\n".join(all_read_text.splitlines()[-total_lines_wanted:])
+    return res_bytes.decode("utf-8")

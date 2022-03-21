@@ -8,11 +8,12 @@ import rich
 from rich.live import Live
 from rich.table import Table
 from rich.layout import Layout
+from rich.highlighter import ReprHighlighter
 from blessed import Terminal
 
 from gjobs.job_list import JobList
 from .util import LOG
-from .output_viewer import OutputViewer
+from .output_viewer import OutputViewer, N_PREVIEW_LINES
 from .parsing_bjobs import parse_run_time
 
 term = Terminal()
@@ -33,7 +34,7 @@ def add_ellipsis_if_long(s, limit=30):
 def format_job_status(job):
     """Display the job status in a nice way."""
     if job["stat"] == "PEND":
-        return f"[yellow]{humanize_timedelta(job['pend_time'])}"
+        return f"⏳[yellow]{humanize_timedelta(job['pend_time'])}"
     elif job["stat"] == "RUN":
         run_time_seconds = parse_run_time(job["run_time"])
 
@@ -108,18 +109,20 @@ def main():
     def update():
         # LOG.append( dt.datetime.now())
         jobs = job_list.get_jobs()
-
         cursor.update(jobs)
 
         content_layout = Layout()
+
+        filename, output_preview = output_viewer.get_output_preview(cursor.get_job(jobs))
+
         content_layout.split_column(
             generate_job_table(jobs, cursor.get_index()),
-            rich.panel.Panel(
-                rich.align.Align(
-                    output_viewer.generate_view(cursor.get_job(jobs)),
-                    vertical="bottom",  # TODO: make this work
+            rich.layout.Layout(
+                rich.panel.Panel(
+                    rich.align.Align(ReprHighlighter()(output_preview)),
+                    title=filename,  # possibly None, in which case no title is used
                 ),
-                title="Output",
+                size=N_PREVIEW_LINES + 2,
             ),
         )
 
@@ -128,7 +131,7 @@ def main():
                 rich.panel.Panel(
                     "\n".join([str(x) for x in LOG[-10:]]), title="Debug log"
                 ),
-                size=7,
+                size=5 + 2,
             )
             layout = Layout()
             layout.split_column(content_layout, log_panel)
