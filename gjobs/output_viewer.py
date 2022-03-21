@@ -1,7 +1,10 @@
 import glob
 import os
+import signal
+import subprocess
 
 from .util import LOG
+from .parsing_bjobs import parse_run_time
 
 # TODO: load and display job output while running
 #   open the files and keep loading the data while available
@@ -46,7 +49,14 @@ class OutputViewer:
 
     def get_output_file(self, job):
         if job["stat"] == "RUN":
-            return self.get_running_output_file(job["jobid"])
+            run_time =  parse_run_time(job["run_time"])
+
+            if run_time and run_time >= 10:
+                return self.get_running_output_file(job["jobid"])
+            else:
+                # For the first few seconds of a job's runtime,
+                # the file might not exist yet.
+                return None
         elif job["stat"] == "PEND":
             return None
         elif job["stat"] in ["DONE", "EXIT"]:
@@ -74,3 +84,20 @@ class OutputViewer:
             return f"{output_file}:\n{head_joined}"
         except FileNotFoundError:
             return f"Couldn't find file {output_file}"
+
+    def open_output_fullscreen(self, job):
+        output_file = self.get_output_file(job)
+        if output_file:
+            old_action = signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+            command = ["less", "-r"]
+
+            if job["stat"] == "RUN":
+                # Tail the file (wait for incoming data) if the job is still running
+                command.append("+F")
+            else:
+                # Jump to the end.
+                command.append("+G")
+
+            subprocess.run(command + [output_file])
+            signal.signal(signal.SIGINT, old_action)

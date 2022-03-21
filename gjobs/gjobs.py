@@ -1,7 +1,7 @@
 import re
 from typing import Optional
 import datetime as dt
-import subprocess
+import functools
 
 import humanize
 import rich
@@ -13,12 +13,21 @@ from blessed import Terminal
 from gjobs.job_list import JobList
 from .util import LOG
 from .output_viewer import OutputViewer
+from .parsing_bjobs import parse_run_time
 
 term = Terminal()
+DEBUG = True
 
 
 def humanize_timedelta(seconds):
     return humanize.naturaldelta(dt.timedelta(seconds=int(seconds)))
+
+
+def add_ellipsis_if_long(s, limit=30):
+    if len(s) <= limit:
+        return s
+    else:
+        return s[:limit] + "..."
 
 
 def format_job_status(job):
@@ -26,15 +35,15 @@ def format_job_status(job):
     if job["stat"] == "PEND":
         return f"[yellow]{humanize_timedelta(job['pend_time'])}"
     elif job["stat"] == "RUN":
-        match = re.match(r"([0-9]*) second\(s\)", job["run_time"])
-        if match:
-            t = match.groups()[0]
-            return f"[green]{humanize_timedelta(t)}"
+        run_time_seconds = parse_run_time(job["run_time"])
+
+        if run_time_seconds is not None:
+            return f"[green]{humanize_timedelta(run_time_seconds)}"
         else:
             LOG.append(f"Could not parse run_time '{job['run_time']}'")
             return "[green]RUN"
 
-    d = {"RUN": "[green]RUN", "EXIT": "[red]EXIT"}
+    d = {"RUN": "[green]RUN", "EXIT": "[red]EXIT", "DONE": "[white]DONE"}
     return d.get(job["stat"], job["stat"])
 
 
@@ -72,20 +81,23 @@ def generate_job_table(jobs, cursor_index) -> Table:
     table.add_column("ID")
     table.add_column("Submitted")
     table.add_column("Status")
+    table.add_column("Name")
 
     for i, job in enumerate(jobs):
-        style = (
-            rich.style.Style(bgcolor="rgb(100,100,100)") if i == cursor_index else None
-        )
+        style = rich.style.Style(bgcolor="rgb(60,60,60)") if i == cursor_index else None
 
         table.add_row(
             job["jobid"],
             job["submit_time"],
             format_job_status(job),
+            add_ellipsis_if_long(job["job_name"]),
             style=style,
         )
 
     return table
+
+
+echo = functools.partial(print, end="", flush=True)
 
 
 def main():
@@ -99,40 +111,52 @@ def main():
 
         cursor.update(jobs)
 
-        log_panel = rich.panel.Panel("\n".join([str(x) for x in LOG[-10:]]))
-
         content_layout = Layout()
-        content_layout.split_row(
+        content_layout.split_column(
             generate_job_table(jobs, cursor.get_index()),
-            rich.align.Align(
-                output_viewer.generate_view(cursor.get_job(jobs)),
-                vertical="bottom",  # TODO: make this work
+            rich.panel.Panel(
+                rich.align.Align(
+                    output_viewer.generate_view(cursor.get_job(jobs)),
+                    vertical="bottom",  # TODO: make this work
+                ),
+                title="Output",
             ),
         )
 
-        layout = Layout()
-        layout.split_column(content_layout, log_panel)
+        if DEBUG:
+            log_panel = rich.layout.Layout(
+                rich.panel.Panel(
+                    "\n".join([str(x) for x in LOG[-10:]]), title="Debug log"
+                ),
+                size=7,
+            )
+            layout = Layout()
+            layout.split_column(content_layout, log_panel)
+        else:
+            layout = content_layout
 
         return layout
 
     with term.cbreak(), term.hidden_cursor():
-        with Live(update(), refresh_per_second=8, screen=True) as live:
+        with Live(
+            update(), refresh_per_second=8, screen=True, auto_refresh=False
+        ) as live:
             input_key = None
 
             while (input_key or "").upper() != "Q":
-                input_key = term.inkey(timeout=2)
+                input_key = term.inkey(timeout=0.5)
 
                 if input_key.code == term.KEY_UP:
                     cursor.move_index(-1)
                 elif input_key.code == term.KEY_DOWN:
                     cursor.move_index(+1)
                 elif input_key.upper() == "L":
-                    LOG.append("L")
-                    # TODO: make `less` work
-                    live.stop()
-                    subprocess.run(["less", "lsf.o207039063"])
+                    # Open the output using `less`
+                    current_job = cursor.get_job(job_list.get_jobs())
+                    output_viewer.open_output_fullscreen(current_job)
 
                 live.update(update())
+                live.refresh()
 
                 # time.sleep(0.4)
 

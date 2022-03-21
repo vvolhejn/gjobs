@@ -95,6 +95,22 @@ def parse_bjobs():
     return parse_bjobs_output(raw_output)
 
 
+def parse_run_time(run_time_string):
+    """
+    The field is job["run_time"].
+    e.g.
+    >>> parse_run_time("25 second(s)")
+    25
+    """
+
+    match = re.match(r"([0-9]*) second\(s\)", run_time_string)
+    if match:
+        t = match.groups()[0]
+        return int(t)
+    else:
+        return None
+
+
 if __name__ == "__main__":
     jobs = parse_bjobs()
     print(jobs)
