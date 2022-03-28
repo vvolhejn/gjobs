@@ -17,7 +17,7 @@ from .output_viewer import OutputViewer, N_PREVIEW_LINES
 from .parsing_bjobs import parse_run_time
 
 term = Terminal()
-DEBUG = True
+DEBUG = False
 
 
 def humanize_timedelta(seconds):
@@ -101,6 +101,40 @@ def generate_job_table(jobs, cursor_index) -> Table:
 echo = functools.partial(print, end="", flush=True)
 
 
+def render_output_preview(output_preview, filename, region):
+    """
+    We get the exact number of preview lines we want, but some of them might be too long
+    and get wrapped. In this case, the extra lines overflow at the bottom, but we want
+    overflow at the top (and there seems to be no way to fix this natively in Rich).
+    To fix this, we cut lines from the top until all lines fit.
+    """
+    console = rich.console.Console()
+
+    lines = output_preview.split("\n")
+
+    while True:
+        if len(lines) == 1:
+            # Do not remove the last line even if the line overflows.
+            break
+
+        # Subtract 2 from the width because of the panel's frame
+        rendered_lines = console.render_lines(
+            "\n".join(lines), console.options.update_width(region.width - 2)
+        )
+
+        if len(rendered_lines) <= region.height - 2:
+            break
+        else:
+            del lines[0]
+
+    panel = rich.panel.Panel(
+        rich.align.Align(ReprHighlighter()("\n".join(lines))),
+        title=filename,  # possibly None, in which case no title is used
+    )
+
+    return panel
+
+
 def main():
     cursor = JobTableCursor()
     output_viewer = OutputViewer()
@@ -111,19 +145,24 @@ def main():
         jobs = job_list.get_jobs()
         cursor.update(jobs)
 
+        job_table_layout = rich.layout.Layout(size=10)
+        output_preview_layout = rich.layout.Layout()
         content_layout = Layout()
+        content_layout.split_column(job_table_layout, output_preview_layout)
 
-        filename, output_preview = output_viewer.get_output_preview(cursor.get_job(jobs))
+        # Get the height of the output preview part.
+        console = rich.console.Console()
+        render_map = content_layout.render(console, console.options)
+        output_preview_region = render_map[output_preview_layout].region
 
-        content_layout.split_column(
-            generate_job_table(jobs, cursor.get_index()),
-            rich.layout.Layout(
-                rich.panel.Panel(
-                    rich.align.Align(ReprHighlighter()(output_preview)),
-                    title=filename,  # possibly None, in which case no title is used
-                ),
-                size=N_PREVIEW_LINES + 2,
-            ),
+        filename, output_preview = output_viewer.get_output_preview(
+            cursor.get_job(jobs), n_preview_lines=output_preview_region.height
+        )
+
+        job_table_layout.update(generate_job_table(jobs, cursor.get_index()))
+
+        output_preview_layout.update(
+            render_output_preview(output_preview, filename, output_preview_region)
         )
 
         if DEBUG:

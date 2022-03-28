@@ -23,7 +23,7 @@ class OutputViewer:
     @staticmethod
     def _find_running_output_file(job_id):
         """Does not try to use cached results."""
-        LOG.append(f"Globbing for {job_id}")
+        # LOG.append(f"Globbing for {job_id}")
         candidates = glob.glob(f"/cluster/shadow/.lsbatch/*{job_id}.out")
         if len(candidates) > 1:
             LOG.append(f"Warning: more than one output file found? {candidates}")
@@ -51,7 +51,10 @@ class OutputViewer:
             return None
 
     def get_output_file(self, job):
-        if job["stat"] == "RUN":
+        # See https://www.ibm.com/docs/en/spectrum-lsf/10.1.0?topic=execution-about-job-states
+        # for info about job states
+
+        if job["stat"] in ["RUN", "USUSP", "SSUSP"]:
             run_time = parse_run_time(job["run_time"])
 
             if run_time and run_time >= 10:
@@ -60,7 +63,7 @@ class OutputViewer:
                 # For the first few seconds of a job's runtime,
                 # the file might not exist yet.
                 return None
-        elif job["stat"] == "PEND":
+        elif job["stat"] in ["PEND", "PSUSP"]:
             return None
         elif job["stat"] in ["DONE", "EXIT"]:
             return self.get_finished_output_file(job)
@@ -68,7 +71,9 @@ class OutputViewer:
             LOG.append(f'Unknown job status {job["stat"]}')
             return None
 
-    def get_output_preview(self, job) -> Tuple[Optional[str], str]:
+    def get_output_preview(
+        self, job, n_preview_lines=N_PREVIEW_LINES
+    ) -> Tuple[Optional[str], str]:
         if job is None:
             # Happens when there are no jobs at all.
             return None, "(no jobs)"
@@ -79,7 +84,7 @@ class OutputViewer:
 
         try:
             with open(output_file, "rb") as f:
-                output_preview = tail(f, lines=N_PREVIEW_LINES)
+                output_preview = tail(f, lines=n_preview_lines)
 
             return output_file, output_preview
         except FileNotFoundError:
