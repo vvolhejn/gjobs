@@ -52,6 +52,8 @@ class JobTableCursor:
     def __init__(self):
         self.index = 0
         self.n_jobs = 0
+        # The index of the first job that is shown.
+        self.scroll = 0
 
     def update(self, jobs):
         self.n_jobs = len(jobs)
@@ -74,8 +76,21 @@ class JobTableCursor:
         else:
             return None
 
+    def update_scroll(self, n_visible, jobs):
+        while self.scroll > self.index:
+            self.scroll -= 1
 
-def generate_job_table(jobs, cursor_index) -> Table:
+        while self.index > self.scroll + n_visible - 1:
+            self.scroll += 1
+
+        # Don't scroll down too low unnecessarily
+        while self.scroll + n_visible - 1 >= len(jobs):
+            self.scroll -= 1
+
+        self.scroll = max(self.scroll, 0)
+
+
+def generate_job_table(jobs, cursor, height) -> Table:
     """Make a new table."""
 
     table = Table()
@@ -84,8 +99,20 @@ def generate_job_table(jobs, cursor_index) -> Table:
     table.add_column("Status")
     table.add_column("Name")
 
-    for i, job in enumerate(jobs):
-        style = rich.style.Style(bgcolor="rgb(60,60,60)") if i == cursor_index else None
+    n_jobs_visible = height - 4
+    if n_jobs_visible <= 0 or not jobs:
+        return table
+
+    cursor.update_scroll(n_jobs_visible, jobs)
+    LOG.append([cursor.scroll, n_jobs_visible, cursor.get_index()])
+
+    for i in range(cursor.scroll, min(cursor.scroll + n_jobs_visible, len(jobs))):
+        job = jobs[i]
+        style = (
+            rich.style.Style(bgcolor="rgb(60,60,60)")
+            if i == cursor.get_index()
+            else None
+        )
 
         table.add_row(
             job["jobid"],
@@ -154,7 +181,11 @@ def update(job_list, cursor, output_viewer):
         cursor.get_job(jobs), n_preview_lines=output_preview_region.height
     )
 
-    job_table_layout.update(generate_job_table(jobs, cursor.get_index()))
+    job_table_layout.update(
+        generate_job_table(
+            jobs, cursor, height=render_map[job_table_layout].region.height
+        )
+    )
 
     output_preview_layout.update(
         render_output_preview(output_preview, filename, output_preview_region)
@@ -162,7 +193,7 @@ def update(job_list, cursor, output_viewer):
 
     if DEBUG:
         log_panel = rich.layout.Layout(
-            rich.panel.Panel("\n".join([str(x) for x in LOG[-10:]]), title="Debug log"),
+            rich.panel.Panel("\n".join([str(x) for x in LOG[-5:]]), title="Debug log"),
             size=5 + 2,
         )
         layout = Layout()
