@@ -104,7 +104,6 @@ def generate_job_table(jobs, cursor, height) -> Table:
         return table
 
     cursor.update_scroll(n_jobs_visible, jobs)
-    LOG.append([cursor.scroll, n_jobs_visible, cursor.get_index()])
 
     for i in range(cursor.scroll, min(cursor.scroll + n_jobs_visible, len(jobs))):
         job = jobs[i]
