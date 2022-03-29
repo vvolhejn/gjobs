@@ -135,53 +135,55 @@ def render_output_preview(output_preview, filename, region):
     return panel
 
 
+def update(job_list, cursor, output_viewer):
+    # LOG.append( dt.datetime.now())
+    jobs = job_list.get_jobs()
+    cursor.update(jobs)
+
+    job_table_layout = rich.layout.Layout(size=10)
+    output_preview_layout = rich.layout.Layout()
+    content_layout = Layout()
+    content_layout.split_column(job_table_layout, output_preview_layout)
+
+    # Get the height of the output preview part.
+    console = rich.console.Console()
+    render_map = content_layout.render(console, console.options)
+    output_preview_region = render_map[output_preview_layout].region
+
+    filename, output_preview = output_viewer.get_output_preview(
+        cursor.get_job(jobs), n_preview_lines=output_preview_region.height
+    )
+
+    job_table_layout.update(generate_job_table(jobs, cursor.get_index()))
+
+    output_preview_layout.update(
+        render_output_preview(output_preview, filename, output_preview_region)
+    )
+
+    if DEBUG:
+        log_panel = rich.layout.Layout(
+            rich.panel.Panel("\n".join([str(x) for x in LOG[-10:]]), title="Debug log"),
+            size=5 + 2,
+        )
+        layout = Layout()
+        layout.split_column(content_layout, log_panel)
+    else:
+        layout = content_layout
+
+    return layout
+
+
 def main():
     cursor = JobTableCursor()
     output_viewer = OutputViewer()
     job_list = JobList()
 
-    def update():
-        # LOG.append( dt.datetime.now())
-        jobs = job_list.get_jobs()
-        cursor.update(jobs)
-
-        job_table_layout = rich.layout.Layout(size=10)
-        output_preview_layout = rich.layout.Layout()
-        content_layout = Layout()
-        content_layout.split_column(job_table_layout, output_preview_layout)
-
-        # Get the height of the output preview part.
-        console = rich.console.Console()
-        render_map = content_layout.render(console, console.options)
-        output_preview_region = render_map[output_preview_layout].region
-
-        filename, output_preview = output_viewer.get_output_preview(
-            cursor.get_job(jobs), n_preview_lines=output_preview_region.height
-        )
-
-        job_table_layout.update(generate_job_table(jobs, cursor.get_index()))
-
-        output_preview_layout.update(
-            render_output_preview(output_preview, filename, output_preview_region)
-        )
-
-        if DEBUG:
-            log_panel = rich.layout.Layout(
-                rich.panel.Panel(
-                    "\n".join([str(x) for x in LOG[-10:]]), title="Debug log"
-                ),
-                size=5 + 2,
-            )
-            layout = Layout()
-            layout.split_column(content_layout, log_panel)
-        else:
-            layout = content_layout
-
-        return layout
-
     with term.cbreak(), term.hidden_cursor():
         with Live(
-            update(), refresh_per_second=8, screen=True, auto_refresh=False
+            update(job_list, cursor, output_viewer),
+            refresh_per_second=8,
+            screen=True,
+            auto_refresh=False,
         ) as live:
             input_key = None
 
@@ -197,7 +199,7 @@ def main():
                     current_job = cursor.get_job(job_list.get_jobs())
                     output_viewer.open_output_fullscreen(current_job)
 
-                live.update(update())
+                live.update(update(job_list, cursor, output_viewer))
                 live.refresh()
 
                 # time.sleep(0.4)
