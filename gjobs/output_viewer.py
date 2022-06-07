@@ -133,4 +133,4 @@ def tail(f, lines=20):
     all_read_text = b"".join(reversed(blocks))
 
     res_bytes = b"\n".join(all_read_text.splitlines()[-total_lines_wanted:])
-    return res_bytes.decode("utf-8")
+    return res_bytes.decode("utf-8", errors="replace")

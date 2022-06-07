@@ -90,16 +90,16 @@ class JobTableCursor:
         self.scroll = max(self.scroll, 0)
 
 
-def generate_job_table(jobs, cursor, height) -> Table:
+def generate_job_table(jobs, cursor, region) -> Table:
     """Make a new table."""
 
-    table = Table()
+    table = Table(width=region.width)
     table.add_column("ID")
     table.add_column("Submitted")
     table.add_column("Status")
     table.add_column("Name")
 
-    n_jobs_visible = height - 4
+    n_jobs_visible = region.height - 4
     if n_jobs_visible <= 0 or not jobs:
         return table
 
@@ -143,9 +143,9 @@ def render_output_preview(output_preview, filename, region):
             # Do not remove the last line even if the line overflows.
             break
 
-        # Subtract 2 from the width because of the panel's frame
+        # Subtract 4 from the width because of the panel's frame + padding
         rendered_lines = console.render_lines(
-            "\n".join(lines), console.options.update_width(region.width - 2)
+            "\n".join(lines), console.options.update_width(region.width - 4)
         )
 
         if len(rendered_lines) <= region.height - 2:
@@ -171,25 +171,6 @@ def update(job_list, cursor, output_viewer):
     content_layout = Layout()
     content_layout.split_column(job_table_layout, output_preview_layout)
 
-    # Get the height of the output preview part.
-    console = rich.console.Console()
-    render_map = content_layout.render(console, console.options)
-    output_preview_region = render_map[output_preview_layout].region
-
-    filename, output_preview = output_viewer.get_output_preview(
-        cursor.get_job(jobs), n_preview_lines=output_preview_region.height
-    )
-
-    job_table_layout.update(
-        generate_job_table(
-            jobs, cursor, height=render_map[job_table_layout].region.height
-        )
-    )
-
-    output_preview_layout.update(
-        render_output_preview(output_preview, filename, output_preview_region)
-    )
-
     if DEBUG:
         log_panel = rich.layout.Layout(
             rich.panel.Panel("\n".join([str(x) for x in LOG[-5:]]), title="Debug log"),
@@ -199,6 +180,23 @@ def update(job_list, cursor, output_viewer):
         layout.split_column(content_layout, log_panel)
     else:
         layout = content_layout
+
+    # Get the height of the output preview part.
+    console = rich.console.Console()
+    render_map = layout.render(console, console.options)
+    output_preview_region = render_map[output_preview_layout].region
+
+    filename, output_preview = output_viewer.get_output_preview(
+        cursor.get_job(jobs), n_preview_lines=output_preview_region.height
+    )
+
+    job_table_layout.update(
+        generate_job_table(jobs, cursor, region=render_map[job_table_layout].region)
+    )
+
+    output_preview_layout.update(
+        render_output_preview(output_preview, filename, output_preview_region)
+    )
 
     return layout
 
